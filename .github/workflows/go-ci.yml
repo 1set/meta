@@ -1,0 +1,136 @@
+name: Go CI
+
+# Reusable CI for the Star* Go modules.
+#
+# Each repo's build.yml is a thin caller:
+#
+#   jobs:
+#     ci:
+#       uses: 1set/meta/.github/workflows/go-ci.yml@<pinned-tag-or-sha>
+#       with:
+#         go-floor: "1.19"      # the repo's go.mod floor (email/markdown use "1.22")
+#       secrets: inherit
+#
+# The matrix tests <go-floor> + the latest stable Go across
+# ubuntu-22.04 / macos-14 / windows-2022. Static checks (vet, gofmt,
+# go mod tidy) and govulncheck run once, on the latest-Go Linux leg;
+# coverage uploads run on the floor Linux leg (the established report leg).
+on:
+  workflow_call:
+    inputs:
+      go-floor:
+        description: "The repo's go.mod floor minor version, e.g. '1.19' or '1.22'."
+        required: true
+        type: string
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+      CODACY_PROJECT_TOKEN:
+        required: false
+
+defaults:
+  run:
+    shell: bash
+
+permissions: read-all
+
+jobs:
+  build:
+    name: Test with ${{ matrix.go-version }} on ${{ matrix.vm-os }}
+    runs-on: ${{ matrix.vm-os }}
+    env:
+      # Coverage upload leg: floor Go on Linux (the report leg downstreams expect).
+      IS_REPORT: ${{ matrix.vm-os == 'ubuntu-22.04' && matrix.go-version == format('{0}.x', inputs.go-floor) }}
+      # Static-check leg: latest Go on Linux (newest toolchain = most reliable
+      # vet/gofmt/tidy/govulncheck; avoids building govulncheck on an old floor).
+      IS_CHECKS: ${{ matrix.vm-os == 'ubuntu-22.04' && matrix.go-version == '1.25.x' }}
+    strategy:
+      max-parallel: 10
+      fail-fast: false
+      matrix:
+        vm-os:
+          - ubuntu-22.04
+          - macos-14
+          - windows-2022
+        go-version:
+          - "${{ inputs.go-floor }}.x"
+          - "1.25.x"
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+      - name: Build
+        run: |
+          go version
+          go mod download
+      # --- static checks: once, on the latest-Go Linux leg ---
+      - name: Vet
+        if: ${{ fromJSON(env.IS_CHECKS) }}
+        run: go vet ./...
+      - name: Gofmt
+        if: ${{ fromJSON(env.IS_CHECKS) }}
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Go mod tidy check
+        if: ${{ fromJSON(env.IS_CHECKS) }}
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Test
+        run: make ci
+      # govulncheck is informational (continue-on-error): it surfaces dependency
+      # CVEs in the run log without gating merges. Promote to gating once the
+      # ecosystem floor lets known findings be fixed in-place.
+      - name: Vulncheck (informational)
+        if: ${{ fromJSON(env.IS_CHECKS) }}
+        continue-on-error: true
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      # The coverage GATE is the codecov/project and codecov/patch commit
+      # statuses set by the Codecov app after this upload; continue-on-error
+      # here only tolerates upload-channel outages, it does not bypass the gate.
+      - name: Upload Coverage Reports to Codecov
+        if: ${{ fromJSON(env.IS_REPORT) }}
+        continue-on-error: true
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.txt
+      - name: Upload Coverage Reports to Codacy
+        if: ${{ fromJSON(env.IS_REPORT) }}
+        continue-on-error: true
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        run:
+          bash <(curl -Ls https://coverage.codacy.com/get.sh) report --force-coverage-parser go -r coverage.txt
+      - name: Analyze
+        if: ${{ fromJSON(env.IS_CHECKS) }}
+        run: |
+          # Setup
+          wget -cqL https://github.com/XAMPPRocky/tokei/releases/download/v12.1.2/tokei-i686-unknown-linux-musl.tar.gz -O tokei.tgz
+          wget -cqL https://github.com/mgechev/revive/releases/download/v1.3.7/revive_linux_amd64.tar.gz -O revive.tgz
+          tar zxf tokei.tgz tokei && chmod +x tokei && $SUDO mv tokei /usr/local/bin && rm tokei.tgz
+          tar zxf revive.tgz revive && chmod +x revive && $SUDO mv revive /usr/local/bin && rm revive.tgz
+          wget -cqL https://raw.githubusercontent.com/1set/meta/master/revive.toml -O revive.toml
+          # Analyze
+          echo "# Analysis on ${{ runner.os }}" > $GITHUB_STEP_SUMMARY
+          uname -a >> $GITHUB_STEP_SUMMARY
+          # --- count lines of code
+          echo "## Tokei Result" >> $GITHUB_STEP_SUMMARY
+          printf '\n```\n' >> $GITHUB_STEP_SUMMARY
+          tokei >> $GITHUB_STEP_SUMMARY
+          printf '```\n\n' >> $GITHUB_STEP_SUMMARY
+          # --- lint
+          echo "## Revive Result" >> $GITHUB_STEP_SUMMARY
+          printf '\n```\n' >> $GITHUB_STEP_SUMMARY
+          revive -config revive.toml -formatter friendly ./... >> $GITHUB_STEP_SUMMARY
+          printf '```\n\n' >> $GITHUB_STEP_SUMMARY
