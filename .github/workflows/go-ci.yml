@@ -8,13 +8,18 @@ name: Go CI
 #     ci:
 #       uses: 1set/meta/.github/workflows/go-ci.yml@<pinned-tag-or-sha>
 #       with:
-#         go-floor: "1.19"      # the repo's go.mod floor (email/markdown use "1.22")
+#         go-floor: "1.19"            # the repo's go.mod floor (email/markdown "1.22", mq "1.23")
+#         # working-directory: "."    # optional: path to the Go module (default repo root)
 #       secrets: inherit
 #
 # The matrix tests <go-floor> + the latest stable Go across
 # ubuntu-22.04 / macos-14 / windows-2022. Static checks (vet, gofmt,
 # go mod tidy) and govulncheck run once, on the latest-Go Linux leg;
 # coverage uploads run on the floor Linux leg (the established report leg).
+#
+# This workflow is self-tested in meta itself: .github/workflows/selftest.yml
+# calls it against the selftest/ fixture, so changes here are validated before
+# the consuming repos re-pin.
 on:
   workflow_call:
     inputs:
@@ -22,15 +27,16 @@ on:
         description: "The repo's go.mod floor minor version, e.g. '1.19' or '1.22'."
         required: true
         type: string
+      working-directory:
+        description: "Path to the Go module within the repo (default: repo root)."
+        required: false
+        type: string
+        default: "."
     secrets:
       CODECOV_TOKEN:
         required: false
       CODACY_PROJECT_TOKEN:
         required: false
-
-defaults:
-  run:
-    shell: bash
 
 permissions: read-all
 
@@ -38,6 +44,10 @@ jobs:
   build:
     name: Test with ${{ matrix.go-version }} on ${{ matrix.vm-os }}
     runs-on: ${{ matrix.vm-os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
     env:
       # Coverage upload leg: floor Go on Linux (the report leg downstreams expect).
       IS_REPORT: ${{ matrix.vm-os == 'ubuntu-22.04' && matrix.go-version == format('{0}.x', inputs.go-floor) }}
@@ -64,6 +74,7 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
           cache: true
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
       - name: Build
         run: |
           go version
@@ -104,7 +115,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage.txt
+          files: ${{ inputs.working-directory }}/coverage.txt
       - name: Upload Coverage Reports to Codacy
         if: ${{ fromJSON(env.IS_REPORT) }}
         continue-on-error: true
@@ -115,9 +126,10 @@ jobs:
       - name: Analyze
         if: ${{ fromJSON(env.IS_CHECKS) }}
         run: |
-          # Setup
+          # Setup (tokei: v12.1.2 is the last release with prebuilt binaries;
+          # revive: pinned to a current release)
           wget -cqL https://github.com/XAMPPRocky/tokei/releases/download/v12.1.2/tokei-i686-unknown-linux-musl.tar.gz -O tokei.tgz
-          wget -cqL https://github.com/mgechev/revive/releases/download/v1.3.7/revive_linux_amd64.tar.gz -O revive.tgz
+          wget -cqL https://github.com/mgechev/revive/releases/download/v1.15.0/revive_linux_amd64.tar.gz -O revive.tgz
           tar zxf tokei.tgz tokei && chmod +x tokei && $SUDO mv tokei /usr/local/bin && rm tokei.tgz
           tar zxf revive.tgz revive && chmod +x revive && $SUDO mv revive /usr/local/bin && rm revive.tgz
           wget -cqL https://raw.githubusercontent.com/1set/meta/master/revive.toml -O revive.toml
