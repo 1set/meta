@@ -1,0 +1,21 @@
+name: Self-test
+
+# Validates the reusable go-ci.yml against the selftest/ fixture, so any change
+# to go-ci.yml is proven end-to-end (build/vet/gofmt/tidy/make ci/govulncheck +
+# revive/tokei analyze) IN meta, before the consuming repos re-pin to it.
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  selftest:
+    uses: ./.github/workflows/go-ci.yml
+    with:
+      go-floor: "1.19"
+      working-directory: "selftest"
+    secrets: inherit
