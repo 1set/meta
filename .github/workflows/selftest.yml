@@ -19,3 +19,17 @@ jobs:
       go-floor: "1.19"
       working-directory: "selftest"
     secrets: inherit
+
+  # Tests the doccov gate itself (meta's own tool, in the root module). The
+  # doc-coverage step in go-ci.yml fetches this via `go run`, so it must stay green.
+  doccov:
+    name: doccov tool
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.19.x"
+      - run: go test -race ./doccov/
