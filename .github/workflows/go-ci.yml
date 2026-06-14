@@ -32,6 +32,11 @@ on:
         required: false
         type: string
         default: "."
+      doc-coverage:
+        description: "Run the doccov README<->builtin consistency gate (starpkg domain modules)."
+        required: false
+        type: boolean
+        default: false
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -97,6 +102,13 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+      # Doc coverage (opt-in): every starlark.NewBuiltin a module exposes to
+      # scripts must be documented in its README. The gate lives in meta and is
+      # fetched with `go run` like govulncheck below; enable it via the
+      # doc-coverage input on starpkg domain modules.
+      - name: Doc coverage
+        if: ${{ fromJSON(env.IS_CHECKS) && inputs.doc-coverage }}
+        run: go run github.com/1set/meta/doccov@master .
       - name: Test
         run: make ci
       # govulncheck is informational (continue-on-error): it surfaces dependency
