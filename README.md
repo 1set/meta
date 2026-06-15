@@ -60,6 +60,8 @@ gates run on the floor Linux leg.
 | `cov-min` | number | `0` | **covcheck** test-coverage floor (`0` = no gate) |
 | `footprint` | bool | `false` | run **footprint** (badge + bloat gate) |
 | `footprint-max-mb` | number | `0` | fail if the stripped footprint delta exceeds this many MB |
+| `doc-coverage-file` | string | `README.md` | doc file doccov checks (e.g. `docs/API.md` for the split layout) |
+| `doc-coverage-config` | bool | `false` | also gate the `base`-generated `get_`/`set_` config accessors |
 
 Pin the `@<sha>` for supply-chain safety; bump it when this workflow changes.
 

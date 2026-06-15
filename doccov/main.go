@@ -44,6 +44,7 @@ import (
 func main() {
 	readme := flag.String("readme", "README.md", "documentation file to check")
 	ignore := flag.String("ignore", "", "comma-separated builtin names to exclude")
+	checkConfig := flag.Bool("config", false, "also require the base-generated config accessors (get_/set_<key>) to be documented")
 	flag.Parse()
 
 	dir := "."
@@ -51,19 +52,25 @@ func main() {
 		dir = flag.Arg(0)
 	}
 
-	if err := run(dir, *readme, splitCSV(*ignore)); err != nil {
+	if err := run(dir, *readme, splitCSV(*ignore), *checkConfig); err != nil {
 		fmt.Fprintln(os.Stderr, "doccov: "+err.Error())
 		os.Exit(1)
 	}
 }
 
-func run(dir, readmeName string, ignore map[string]bool) error {
+func run(dir, readmeName string, ignore map[string]bool, checkConfig bool) error {
 	surface, err := scanSurface(dir)
 	if err != nil {
 		return err
 	}
-	if len(surface) == 0 {
-		fmt.Println("doccov: no starlark.NewBuiltin calls found; nothing to check")
+	var accessors []string
+	if checkConfig {
+		if accessors, err = scanConfig(dir); err != nil {
+			return err
+		}
+	}
+	if len(surface) == 0 && len(accessors) == 0 {
+		fmt.Println("doccov: no starlark.NewBuiltin calls or config options found; nothing to check")
 		return nil
 	}
 
@@ -74,21 +81,39 @@ func run(dir, readmeName string, ignore map[string]bool) error {
 	}
 	documented := backtickWords(string(data))
 
+	missBuiltins := undocumented(surface, documented, ignore)
+	missConfig := undocumented(accessors, documented, ignore)
+
+	fmt.Printf("doccov: %s — builtins %d/%d documented, config accessors %d/%d documented\n",
+		readmeName,
+		len(surface)-len(missBuiltins), len(surface),
+		len(accessors)-len(missConfig), len(accessors))
+
+	var errs []string
+	if len(missBuiltins) > 0 {
+		errs = append(errs, "undocumented builtins: "+strings.Join(missBuiltins, ", "))
+	}
+	if len(missConfig) > 0 {
+		errs = append(errs, "undocumented config accessors: "+strings.Join(missConfig, ", "))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("in %s: %s", readmeName, strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// undocumented returns the sorted names from want that are neither ignored nor
+// present (as a backtick word) in documented.
+func undocumented(want []string, documented, ignore map[string]bool) []string {
 	var missing []string
-	for _, name := range surface {
+	for _, name := range want {
 		if ignore[name] || documented[name] {
 			continue
 		}
 		missing = append(missing, name)
 	}
 	sort.Strings(missing)
-
-	fmt.Printf("doccov: %d script-facing builtins, %d documented, %d missing\n",
-		len(surface), len(surface)-len(missing), len(missing))
-	if len(missing) > 0 {
-		return fmt.Errorf("undocumented in %s: %s", readmeName, strings.Join(missing, ", "))
-	}
-	return nil
+	return missing
 }
 
 // scanSurface returns the sorted, de-duplicated set of script-facing builtin
@@ -129,6 +154,70 @@ func scanSurface(dir string) ([]string, error) {
 		})
 	}
 
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+var (
+	configKeyConst = regexp.MustCompile(`(configKey\w+)\s*=\s*"([^"]+)"`)
+	configDeclLine = regexp.MustCompile(`ConfigOption\(\s*(configKey\w+)`)
+)
+
+// scanConfig returns the sorted config-accessor builtin names that `base`
+// auto-generates for a module's config options: set_<name> for every option,
+// plus get_<name> for non-secret options. It is convention-based (best-effort):
+// it reads the `configKey<X> = "<name>"` constants and the
+// gen[Secret]ConfigOption(configKey<X>, …) declarations; a declaration line
+// containing "Secret" (genSecretConfigOption or a chained .SetSecret(true))
+// marks that option secret, so it gets no get_ accessor. Returns nil if the
+// module follows neither convention.
+func scanConfig(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	keyValue := map[string]string{} // configKey ident -> option name
+	declared := map[string]bool{}   // configKey ident -> registered as an option
+	secret := map[string]bool{}     // configKey ident -> secret (set_ only)
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return nil, err
+		}
+		text := string(data)
+		for _, m := range configKeyConst.FindAllStringSubmatch(text, -1) {
+			keyValue[m[1]] = m[2]
+		}
+		for _, line := range strings.Split(text, "\n") {
+			m := configDeclLine.FindStringSubmatch(line)
+			if m == nil {
+				continue
+			}
+			declared[m[1]] = true
+			if strings.Contains(line, "Secret") {
+				secret[m[1]] = true
+			}
+		}
+	}
+	set := map[string]bool{}
+	for ident := range declared {
+		val, ok := keyValue[ident]
+		if !ok {
+			continue
+		}
+		set["set_"+val] = true
+		if !secret[ident] {
+			set["get_"+val] = true
+		}
+	}
 	out := make([]string, 0, len(set))
 	for k := range set {
 		out = append(out, k)
