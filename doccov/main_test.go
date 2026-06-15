@@ -64,6 +64,18 @@ func TestBacktickWords(t *testing.T) {
 	}
 }
 
+func TestBacktickWordsAcrossFences(t *testing.T) {
+	// Regression: a `code` reference in a table AFTER a ```fenced``` block must
+	// still be detected (the fenced block must not corrupt inline-span pairing).
+	doc := "Intro `inline_one`.\n\n```go\ncode := example()\n```\n\n| opt | accessors |\n|---|---|\n| width | `get_width` / `set_width` |\n"
+	words := backtickWords(doc)
+	for _, w := range []string{"inline_one", "example", "get_width", "set_width"} {
+		if !words[w] {
+			t.Errorf("expected %q documented across the fence, got %v", w, words)
+		}
+	}
+}
+
 func TestRunGood(t *testing.T) {
 	if err := run("testdata/good", "README.md", nil, false); err != nil {
 		t.Fatalf("good fixture should pass, got: %v", err)

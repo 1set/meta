@@ -255,18 +255,29 @@ func shortName(name string) string {
 }
 
 var (
+	fencedBlock  = regexp.MustCompile("(?s)```.*?```")
 	backtickSpan = regexp.MustCompile("`[^`]+`")
 	wordToken    = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
 )
 
-// backtickWords collects every identifier word appearing inside a backtick span
-// of the document.
+// backtickWords collects every identifier word that appears inside code in the
+// document — both ```fenced``` blocks and `inline` spans. Fenced blocks are
+// processed and removed first so their backticks don't throw off the
+// single-backtick span matcher (which otherwise mis-pairs across a fence, so a
+// `code` reference in a table *after* a fenced example could be missed).
 func backtickWords(doc string) map[string]bool {
 	out := map[string]bool{}
-	for _, span := range backtickSpan.FindAllString(doc, -1) {
-		for _, w := range wordToken.FindAllString(span, -1) {
+	add := func(s string) {
+		for _, w := range wordToken.FindAllString(s, -1) {
 			out[w] = true
 		}
+	}
+	rest := fencedBlock.ReplaceAllStringFunc(doc, func(block string) string {
+		add(block)
+		return "\n"
+	})
+	for _, span := range backtickSpan.FindAllString(rest, -1) {
+		add(span)
 	}
 	return out
 }
