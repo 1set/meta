@@ -37,6 +37,21 @@ on:
         required: false
         type: boolean
         default: false
+      cov-min:
+        description: "Minimum total test coverage percent required, ratchet floor (0 = no gate)."
+        required: false
+        type: number
+        default: 0
+      footprint:
+        description: "Measure the module's marginal binary-size footprint (badge + bloat gate)."
+        required: false
+        type: boolean
+        default: false
+      footprint-max-mb:
+        description: "Fail if the stripped binary-footprint delta exceeds this many MB (0 = report only)."
+        required: false
+        type: number
+        default: 0
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -111,6 +126,20 @@ jobs:
         run: go run github.com/1set/meta/doccov@master .
       - name: Test
         run: make ci
+      # Test-coverage gate (ratchet): covcheck parses the coverage.txt that
+      # `make ci` wrote and fails if total coverage drops below cov-min. Floor
+      # leg. Gated on cov-min > 0 so repos opt in with their ratchet floor.
+      - name: Coverage gate
+        if: ${{ fromJSON(env.IS_REPORT) && inputs.cov-min > 0 }}
+        run: go run github.com/1set/meta/covcheck@master -min ${{ inputs.cov-min }} coverage.txt
+      # Binary footprint (opt-in): measure the marginal binary size the module
+      # adds over a bare starlet host; fails if the stripped delta exceeds
+      # footprint-max-mb (0 = report only). Floor leg for comparable numbers.
+      - name: Binary footprint
+        if: ${{ fromJSON(env.IS_REPORT) && inputs.footprint }}
+        run: |
+          modpath=$(awk '/^module /{print $2; exit}' go.mod)
+          go run github.com/1set/meta/footprint@master -modpath "$modpath" -dir . -max-mb ${{ inputs.footprint-max-mb }}
       # govulncheck is informational (continue-on-error): it surfaces dependency
       # CVEs in the run log without gating merges. Promote to gating once the
       # ecosystem floor lets known findings be fixed in-place.
