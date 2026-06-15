@@ -133,7 +133,7 @@ jobs:
       # doc-coverage input on starpkg domain modules.
       - name: Doc coverage
         if: ${{ fromJSON(env.IS_CHECKS) && inputs.doc-coverage }}
-        run: go run github.com/1set/meta/doccov@master -readme "${{ inputs.doc-coverage-file }}" ${{ inputs.doc-coverage-config && '-config' || '' }} .
+        run: go run github.com/1set/meta/doccov@cc6a3ec4d182169381eb8ca5a492be0d57013c0c -readme "${{ inputs.doc-coverage-file }}" ${{ inputs.doc-coverage-config && '-config' || '' }} .
       - name: Test
         run: make ci
       # Test-coverage gate (ratchet): covcheck parses the coverage.txt that
@@ -141,7 +141,7 @@ jobs:
       # leg. Gated on cov-min > 0 so repos opt in with their ratchet floor.
       - name: Coverage gate
         if: ${{ fromJSON(env.IS_REPORT) && inputs.cov-min > 0 }}
-        run: go run github.com/1set/meta/covcheck@master -min ${{ inputs.cov-min }} coverage.txt
+        run: go run github.com/1set/meta/covcheck@cc6a3ec4d182169381eb8ca5a492be0d57013c0c -min ${{ inputs.cov-min }} coverage.txt
       # Binary footprint (opt-in): measure the marginal binary size the module
       # adds over a bare starlet host; fails if the stripped delta exceeds
       # footprint-max-mb (0 = report only). Floor leg for comparable numbers.
@@ -149,7 +149,7 @@ jobs:
         if: ${{ fromJSON(env.IS_REPORT) && inputs.footprint }}
         run: |
           modpath=$(awk '/^module /{print $2; exit}' go.mod)
-          go run github.com/1set/meta/footprint@master -modpath "$modpath" -dir . -max-mb ${{ inputs.footprint-max-mb }}
+          go run github.com/1set/meta/footprint@cc6a3ec4d182169381eb8ca5a492be0d57013c0c -modpath "$modpath" -dir . -max-mb ${{ inputs.footprint-max-mb }}
       # govulncheck is informational (continue-on-error): it surfaces dependency
       # CVEs in the run log without gating merges. Promote to gating once the
       # ecosystem floor lets known findings be fixed in-place.
