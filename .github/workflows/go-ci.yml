@@ -52,6 +52,16 @@ on:
         required: false
         type: number
         default: 0
+      doc-coverage-file:
+        description: "Documentation file doccov checks (e.g. 'docs/API.md' for the split layout; default README.md)."
+        required: false
+        type: string
+        default: "README.md"
+      doc-coverage-config:
+        description: "Also require base-generated config accessors (get_/set_) to be documented."
+        required: false
+        type: boolean
+        default: false
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -123,7 +133,7 @@ jobs:
       # doc-coverage input on starpkg domain modules.
       - name: Doc coverage
         if: ${{ fromJSON(env.IS_CHECKS) && inputs.doc-coverage }}
-        run: go run github.com/1set/meta/doccov@master .
+        run: go run github.com/1set/meta/doccov@master -readme "${{ inputs.doc-coverage-file }}" ${{ inputs.doc-coverage-config && '-config' || '' }} .
       - name: Test
         run: make ci
       # Test-coverage gate (ratchet): covcheck parses the coverage.txt that

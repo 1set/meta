@@ -21,8 +21,9 @@ Flags:
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `-readme` | `README.md` | documentation file to check |
-| `-ignore` | (empty) | comma-separated builtin names to exclude (deprecated/internal-but-registered) |
+| `-readme` | `README.md` | documentation file to check (e.g. `docs/API.md` for the split layout) |
+| `-ignore` | (empty) | comma-separated names to exclude (deprecated/internal-but-registered) |
+| `-config` | off | also require the `base`-generated config accessors (`get_`/`set_<key>`) to be documented |
 
 ## How it decides
 
@@ -30,6 +31,13 @@ Flags:
   in the non-test (`*.go`, excluding `*_test.go`) files at the top of the directory.
   A qualified name `"module.fn"` (and the `ModuleName + ".fn"` form) is reduced to `fn`.
 - **Documented** = the name appears as a word inside a backtick span of the README.
+- **Config accessors** (`-config`) = a separate group. `base` auto-generates a
+  `get_<key>`/`set_<key>` pair for every config option (secret options get only
+  `set_`). doccov derives them from the `configKey<X> = "<name>"` constants and
+  the `gen[Secret]ConfigOption(configKey<X>, …)` declarations (a declaration line
+  containing "Secret" — `genSecretConfigOption` or a chained `.SetSecret(true)` —
+  marks the option secret). Reported and gated as its own group, so the docs can
+  keep a separate *Configuration* section.
 - It checks for **omission**, not accuracy — a wrong description is a review concern.
 - Exit status is non-zero on an undocumented builtin or a missing README; it is
   **zero when no `starlark.NewBuiltin` calls are found** (the repo does not opt in).
@@ -45,7 +53,9 @@ jobs:
     uses: 1set/meta/.github/workflows/go-ci.yml@<pin>
     with:
       go-floor: "1.20"
-      doc-coverage: true   # turn on the doccov gate
+      doc-coverage: true              # turn on the doccov gate
+      # doc-coverage-file: docs/API.md  # split layout: check the API reference
+      # doc-coverage-config: true       # also gate the get_/set_ config accessors
     secrets: inherit
 ```
 
