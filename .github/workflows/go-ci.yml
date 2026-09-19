@@ -16,6 +16,8 @@ name: Go CI
 # ubuntu-22.04 / macos-14 / windows-2022. Static checks (vet, gofmt,
 # go mod tidy) and govulncheck run once, on the latest-Go Linux leg;
 # coverage uploads run on the floor Linux leg (the established report leg).
+# Callers must grant contents: read and id-token: write to the calling job;
+# Codecov authenticates the short-lived GitHub OIDC identity, not a stored token.
 #
 # This workflow is self-tested in meta itself: .github/workflows/selftest.yml
 # calls it against the selftest/ fixture, so changes here are validated before
@@ -97,6 +99,7 @@ jobs:
           - "1.27.x"
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v5
       - name: Set up Go
@@ -165,7 +168,7 @@ jobs:
         continue-on-error: true
         uses: codecov/codecov-action@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
           files: ${{ inputs.working-directory }}/coverage.txt
       - name: Upload Coverage Reports to Codacy
         if: ${{ fromJSON(env.IS_REPORT) }}
