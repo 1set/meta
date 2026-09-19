@@ -63,7 +63,9 @@ surface, revive = GoDoc.
 
 ## go-ci.yml design (the part that matters when editing)
 
-- Matrix: `[<go-floor>.x, 1.25.x] × {ubuntu-22.04, macos-14, windows-2022}`.
+- Matrix: `[<go-floor>.x, 1.27.x] × {ubuntu-22.04, macos-14, windows-2022}`.
+  Resolve the latest patch with `check-latest: true`; a runner's cached patch
+  can be older than the consumer's minimum secure Go version.
 - Two env-flag legs: **`IS_CHECKS`** (latest Go + Linux) runs the once-only static
   checks (vet/gofmt/tidy/govulncheck/doccov); **`IS_REPORT`** (floor + Linux) runs
   `make ci` coverage upload + the covcheck/footprint gates (floor for comparable
