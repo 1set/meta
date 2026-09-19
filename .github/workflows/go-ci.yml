@@ -138,7 +138,7 @@ jobs:
       # doc-coverage input on starpkg domain modules.
       - name: Doc coverage
         if: ${{ fromJSON(env.IS_CHECKS) && inputs.doc-coverage }}
-        run: go run github.com/1set/meta/doccov@cc6a3ec4d182169381eb8ca5a492be0d57013c0c -readme "${{ inputs.doc-coverage-file }}" ${{ inputs.doc-coverage-config && '-config' || '' }} .
+        run: go run github.com/1set/meta/doccov@7f86e3579435f4ad11bc9f757d3f7af1ad6b4bf0 -readme "${{ inputs.doc-coverage-file }}" ${{ inputs.doc-coverage-config && '-config' || '' }} .
       - name: Test
         run: make ci
       # Test-coverage gate (ratchet): covcheck parses the coverage.txt that
