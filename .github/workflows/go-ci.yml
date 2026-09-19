@@ -70,7 +70,9 @@ on:
       CODACY_PROJECT_TOKEN:
         required: false
 
-permissions: read-all
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   build:
