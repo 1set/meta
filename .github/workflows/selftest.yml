@@ -14,6 +14,9 @@ permissions: read-all
 
 jobs:
   selftest:
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/go-ci.yml
     with:
       go-floor: "1.19"
