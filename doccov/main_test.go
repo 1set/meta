@@ -196,6 +196,9 @@ func TestConfigDeclarationSyntax(t *testing.T) {
 		{`genSecretConfigOption(configKeyLimit, "limit", 0)`, "set_limit"},
 		{`genConfigOption(configKeyUnknown, "limit", 0)`, ""},
 		{`genConfigOption("literal without key convention", 0)`, ""},
+		{`unrelated(configKeyLimit)`, ""},
+		{`func() interface{} { return nil }()`, ""},
+		{`pkg.unrelated(configKeyLimit)`, ""},
 	} {
 		dir := t.TempDir()
 		src := "package m\nconst configKeyLimit = \"limit\"\nvar option = " + tc.expression
