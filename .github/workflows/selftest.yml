@@ -9,6 +9,11 @@ on:
   pull_request:
     branches: ["master"]
   workflow_dispatch:
+    inputs:
+      coverage-ref:
+        description: "Exact commit SHA for a one-time tools coverage baseline (empty = current commit)"
+        required: false
+        type: string
 
 permissions: read-all
 
@@ -30,9 +35,20 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.coverage-ref || github.sha }}
       - uses: actions/setup-go@v6
         with:
           go-version: "1.19.x"
-      - run: go test -race ./...
+      - run: go test -race -coverprofile=coverage-tools.txt ./...
+      - name: Upload tools coverage
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: coverage-tools.txt
+          override_commit: ${{ inputs.coverage-ref }}
+          disable_search: true
+          fail_ci_if_error: true

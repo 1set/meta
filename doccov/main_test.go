@@ -5,6 +5,7 @@
 package main
 
 import (
+	"fmt"
 	"go/parser"
 	"os"
 	"path/filepath"
@@ -137,5 +138,99 @@ func TestRunConfigGate(t *testing.T) {
 func TestRunMissingReadme(t *testing.T) {
 	if err := run("testdata/good", "NOPE.md", nil, false); err == nil {
 		t.Fatal("a missing documentation file should fail")
+	}
+}
+
+// The accessor contract is orthogonal: host-only hides setters, secret hides
+// getters. Test the whole product, multiline chains, and later false overrides.
+func TestConfigVisibilityContract(t *testing.T) {
+	for _, secret := range []bool{false, true} {
+		for _, host := range []bool{false, true} {
+			for _, factory := range []string{"genConfigOption", "genSecretConfigOption"} {
+				dir := t.TempDir()
+				src := fmt.Sprintf("package m\nconst configKeyLimit = `limit`\nvar option = %s(\nconfigKeyLimit, \"Secret in description is not a flag\", 1).\nSetSecret(%v).\nSetHostOnly(%v)\n", factory, secret, host)
+				if err := os.WriteFile(filepath.Join(dir, "mod.go"), []byte(src), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				got, err := scanConfig(dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := []string{}
+				if !secret {
+					want = append(want, "get_limit")
+				}
+				if !host {
+					want = append(want, "set_limit")
+				}
+				if strings.Join(got, ",") != strings.Join(want, ",") {
+					t.Fatalf("secret=%v host=%v factory=%s: %v, want %v", secret, host, factory, got, want)
+				}
+			}
+		}
+	}
+	for _, tc := range []struct{ chain, want string }{
+		{`.SetHostOnly(true).SetHostOnly(false).SetSecret(true).SetSecret(false)`, "get_limit,set_limit"},
+		{`.SetHostOnly(true)`, "get_limit"},
+	} {
+		dir := t.TempDir()
+		src := "package m\nconst configKeyLimit = \"limit\"\nvar option = genConfigOption(configKeyLimit, \"Secret\", 0)" + tc.chain
+		if err := os.WriteFile(filepath.Join(dir, "mod.go"), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := scanConfig(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(got, ",") != tc.want {
+			t.Fatalf("%s: %v, want %s", tc.chain, got, tc.want)
+		}
+	}
+}
+
+func TestConfigDeclarationSyntax(t *testing.T) {
+	for _, tc := range []struct{ expression, want string }{
+		{`genConfigOption[int](configKeyLimit, "limit", 0)`, "get_limit,set_limit"},
+		{`pkg.genConfigOption[int, string](configKeyLimit, "limit", 0).WithDescription("text").SetHostOnly(true)`, "get_limit"},
+		{`base.NewNamedConfigOption("module", configKeyLimit, "limit", 0).SetSecret(true)`, "set_limit"},
+		{`genSecretConfigOption(configKeyLimit, "limit", 0)`, "set_limit"},
+		{`genConfigOption(configKeyUnknown, "limit", 0)`, ""},
+		{`genConfigOption("literal without key convention", 0)`, ""},
+		{`unrelated(configKeyLimit)`, ""},
+		{`func() interface{} { return nil }()`, ""},
+		{`pkg.unrelated(configKeyLimit)`, ""},
+	} {
+		dir := t.TempDir()
+		src := "package m\nconst configKeyLimit = \"limit\"\nvar option = " + tc.expression
+		if err := os.WriteFile(filepath.Join(dir, "mod.go"), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := scanConfig(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(got, ",") != tc.want {
+			t.Fatalf("%s: %v, want %s", tc.expression, got, tc.want)
+		}
+	}
+	for _, suffix := range []string{`.SetSecret()`, `.SetSecret(flag)`, `.SetHostOnly(1)`, `.SetHostOnly(true).SetSecret(flag)`} {
+		dir := t.TempDir()
+		src := "package m\nconst configKeyLimit = \"limit\"\nvar option = genConfigOption(configKeyLimit, 0)" + suffix
+		if err := os.WriteFile(filepath.Join(dir, "mod.go"), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := scanConfig(dir); err == nil || !strings.Contains(err.Error(), "literal boolean") {
+			t.Fatalf("%s: %v", suffix, err)
+		}
+	}
+	if _, err := scanConfig(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing directory accepted")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "bad.go"), []byte("not go"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanConfig(dir); err == nil {
+		t.Fatal("malformed Go accepted")
 	}
 }
