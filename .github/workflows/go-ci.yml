@@ -108,6 +108,8 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go-version }}
+          # Runner caches may lag behind a newly required security patch.
+          check-latest: true
           cache: true
           cache-dependency-path: ${{ inputs.working-directory }}/go.sum
       - name: Build
