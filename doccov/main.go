@@ -162,68 +162,132 @@ func scanSurface(dir string) ([]string, error) {
 	return out, nil
 }
 
-var (
-	configKeyConst = regexp.MustCompile(`(configKey\w+)\s*=\s*"([^"]+)"`)
-	configDeclLine = regexp.MustCompile(`ConfigOption\(\s*(configKey\w+)`)
-)
+// configVisibility mirrors base's independent script getter/setter controls.
+type configVisibility struct {
+	key      string
+	secret   bool
+	hostOnly bool
+}
 
-// scanConfig returns the sorted config-accessor builtin names that `base`
-// auto-generates for a module's config options: set_<name> for every option,
-// plus get_<name> for non-secret options. It is convention-based (best-effort):
-// it reads the `configKey<X> = "<name>"` constants and the
-// gen[Secret]ConfigOption(configKey<X>, …) declarations; a declaration line
-// containing "Secret" (genSecretConfigOption or a chained .SetSecret(true))
-// marks that option secret, so it gets no get_ accessor. Returns nil if the
-// module follows neither convention.
+// scanConfig recognizes the ecosystem's configKey constants and ConfigOption
+// factory chains. Parse Go syntax so multiline calls, comments, and explicit
+// false overrides have exactly the same visibility semantics as single lines.
 func scanConfig(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	keyValue := map[string]string{} // configKey ident -> option name
-	declared := map[string]bool{}   // configKey ident -> registered as an option
-	secret := map[string]bool{}     // configKey ident -> secret (set_ only)
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+	keys := map[string]string{}
+	options := map[string]configVisibility{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, name))
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, 0)
 		if err != nil {
 			return nil, err
 		}
-		text := string(data)
-		for _, m := range configKeyConst.FindAllStringSubmatch(text, -1) {
-			keyValue[m[1]] = m[2]
-		}
-		for _, line := range strings.Split(text, "\n") {
-			m := configDeclLine.FindStringSubmatch(line)
-			if m == nil {
-				continue
+		var scanErr error
+		ast.Inspect(file, func(node ast.Node) bool {
+			if spec, ok := node.(*ast.ValueSpec); ok {
+				for i, ident := range spec.Names {
+					if i < len(spec.Values) && strings.HasPrefix(ident.Name, "configKey") {
+						if value := stringLit(spec.Values[i]); value != "" {
+							keys[ident.Name] = value
+						}
+					}
+				}
 			}
-			declared[m[1]] = true
-			if strings.Contains(line, "Secret") {
-				secret[m[1]] = true
+			expr, ok := node.(ast.Expr)
+			if !ok {
+				return true
 			}
+			option, found, err := configOption(expr)
+			if err != nil {
+				scanErr = err
+				return false
+			}
+			if found {
+				options[option.key] = option
+				return false
+			}
+			return true
+		})
+		if scanErr != nil {
+			return nil, fmt.Errorf("%s: %w", name, scanErr)
 		}
 	}
 	set := map[string]bool{}
-	for ident := range declared {
-		val, ok := keyValue[ident]
+	for key, option := range options {
+		name, ok := keys[key]
 		if !ok {
 			continue
 		}
-		set["set_"+val] = true
-		if !secret[ident] {
-			set["get_"+val] = true
+		if !option.hostOnly {
+			set["set_"+name] = true
+		}
+		if !option.secret {
+			set["get_"+name] = true
 		}
 	}
 	out := make([]string, 0, len(set))
-	for k := range set {
-		out = append(out, k)
+	for name := range set {
+		out = append(out, name)
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+func configOption(expr ast.Expr) (configVisibility, bool, error) {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return configVisibility{}, false, nil
+	}
+	if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
+		option, found, err := configOption(selector.X)
+		if err != nil || found {
+			if err == nil && (selector.Sel.Name == "SetHostOnly" || selector.Sel.Name == "SetSecret") {
+				if len(call.Args) != 1 {
+					return option, true, fmt.Errorf("%s needs a literal boolean", selector.Sel.Name)
+				}
+				flag, ok := call.Args[0].(*ast.Ident)
+				if !ok || (flag.Name != "true" && flag.Name != "false") {
+					return option, true, fmt.Errorf("%s needs a literal boolean", selector.Sel.Name)
+				}
+				if selector.Sel.Name == "SetHostOnly" {
+					option.hostOnly = flag.Name == "true"
+				} else {
+					option.secret = flag.Name == "true"
+				}
+			}
+			return option, found, err
+		}
+	}
+	name := configFactoryName(call.Fun)
+	if !strings.HasSuffix(name, "ConfigOption") {
+		return configVisibility{}, false, nil
+	}
+	for _, arg := range call.Args {
+		if key, ok := arg.(*ast.Ident); ok && strings.HasPrefix(key.Name, "configKey") {
+			return configVisibility{key: key.Name, secret: strings.Contains(name, "Secret")}, true, nil
+		}
+	}
+	return configVisibility{}, false, nil
+}
+
+func configFactoryName(expr ast.Expr) string {
+	switch expr := expr.(type) {
+	case *ast.Ident:
+		return expr.Name
+	case *ast.SelectorExpr:
+		return expr.Sel.Name
+	case *ast.IndexExpr:
+		return configFactoryName(expr.X)
+	case *ast.IndexListExpr:
+		return configFactoryName(expr.X)
+	}
+	return ""
 }
 
 // stringLit extracts a string constant from a builtin's first argument. It

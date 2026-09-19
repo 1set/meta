@@ -61,3 +61,11 @@ jobs:
 
 GoDoc completeness (a doc comment on every exported symbol) is a separate concern,
 covered by `revive`'s `exported` rule in the same workflow's Analyze step.
+
+Config visibility follows the complete `base` contract: public options expose
+`get_` and `set_`, secret options only `set_`, host-only options only `get_`,
+and secret + host-only options neither. `-config` recognizes multiline Go
+factory chains and the final literal `SetSecret(true/false)` /
+`SetHostOnly(true/false)` value. Non-literal visibility flags are rejected so
+an unknown contract cannot silently pass. Config names follow the existing
+`configKeyName = "name"` convention.
