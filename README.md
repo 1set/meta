@@ -45,10 +45,14 @@ jobs:
     secrets: inherit
 ```
 
-It runs the matrix `[<go-floor>.x, 1.25.x] × {ubuntu-22.04, macos-14,
+It runs the matrix `[<go-floor>.x, 1.27.x] × {ubuntu-22.04, macos-15,
 windows-2022}`. Static checks (vet, gofmt, `go mod tidy`, govulncheck, doccov)
 run once on the latest-Go Linux leg; coverage upload + the covcheck/footprint
 gates run on the floor Linux leg.
+
+Runner images select CI hosts; they do not change a module's declared Go floor
+or supported OS baseline. The `macos-15` leg replaces the `macos-14` image
+[retired by GitHub on November 2, 2026](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/).
 
 ### Inputs
 

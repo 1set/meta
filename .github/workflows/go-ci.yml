@@ -13,9 +13,10 @@ name: Go CI
 #       secrets: inherit
 #
 # The matrix tests <go-floor> + the latest stable Go across
-# ubuntu-22.04 / macos-14 / windows-2022. Static checks (vet, gofmt,
+# ubuntu-22.04 / macos-15 / windows-2022. Static checks (vet, gofmt,
 # go mod tidy) and govulncheck run once, on the latest-Go Linux leg;
 # coverage uploads run on the floor Linux leg (the established report leg).
+# Runner images select CI hosts, not the modules' minimum Go or supported OS versions.
 # Callers must grant contents: read and id-token: write to the calling job;
 # Codecov authenticates the short-lived GitHub OIDC identity, not a stored token.
 #
@@ -94,7 +95,7 @@ jobs:
       matrix:
         vm-os:
           - ubuntu-22.04
-          - macos-14
+          - macos-15
           - windows-2022
         go-version:
           - "${{ inputs.go-floor }}.x"
